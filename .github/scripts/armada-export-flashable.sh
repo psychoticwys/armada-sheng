@@ -127,19 +127,16 @@ case "$DEVICE" in
         ( cd "$MNT/usr/lib/modules/$KVER" && \
           echo "--- goodix/berlin modules:"; find . -iname '*goodix*' -o -iname '*berlin*' | head; \
           echo "--- touch firmware:"; find "$MNT"/lib/firmware -iname '*gt9*' -o -iname '*shen*' | head -12; \
-          echo "--- dts touch node:"; strings "$DTB" | grep -i -E 'goodix|touch|berlin' | head -8; \
+          echo "--- dts touch node:"; strings "$DTB" | grep -i -E 'goodix|touch|berlin' | head -8 || true; \
           echo "--- usb gadget modules:"; find . -path '*gadget*' -name '*.ko*' | head -8 ) 2>&1 | tee "$OUT/touchchain.log"
         ;;
     sm8250-xiaomi-thyme)
         ( cd "$MNT/usr/lib/modules/$KVER" && \
           echo "--- st-fts modules:"; find . -iname '*fts*' -o -iname '*stfts*' | head; \
           echo "--- touch firmware:"; find "$MNT"/usr/lib/firmware -iname '*ftb*' -o -iname '*fts*' | head -12; \
-          echo "--- dts touch node:"; strings "$DTB" | grep -i -E 'fts|touch' | head -8; \
-          #echo "--- audio firmware:"; ls "$MNT/usr/lib/firmware/cirrus" 2>/dev/null | head -8; \
-          echo "--- audio firmware:"; ls "$MNT/usr/lib/firmware/cirrus" 2>/dev/null | head -8 || true
-
-
-          echo "--- usb gadget modules:"; find . -path '*gadget*' -name '*.ko*' | head -8 ) 2>&1 | tee "$OUT/touchchain.log"
+          echo "--- dts touch node:"; strings "$DTB" | grep -i -E 'fts|touch' | head -8 || true; \
+          echo "--- audio firmware:"; ls "$MNT/usr/lib/firmware/cirrus" 2>/dev/null | head -8 || true; \
+          echo "--- usb gadget modules:"; find . -path '*gadget*' -name '*.ko*' | head -8 || true ) 2>&1 | tee "$OUT/touchchain.log"
         ;;
 esac
 
@@ -157,12 +154,21 @@ if [ "$DEVICE" = "sm8550-xiaomi-sheng" ]; then
         echo "alias firmware: novatek/nt36532e.bin created"
     fi
 else
-    # thyme: umi DSP set + CS35L41 tuning + ath11k QCA6390 + qca BT nv are
-    # vendored in system_files/usr/lib/firmware and installed by the
-    # container build (20-install-kernel copies the tree); the ST FTS
-    # touch firmware ships from the vendor image the same way. Only audit.
-    echo "--- thyme firmware:"; ls "$MNT/usr/lib/firmware/qcom/sm8250/umi" 2>/dev/null | head -8
-    ls "$MNT/usr/lib/firmware/ath11k/QCA6390/hw2.0" 2>/dev/null | head -5
+    # thyme: umi DSP set + ath11k QCA6390 + qca BT nv are vendored in
+    # system_files/usr/lib/firmware and installed by the container build
+    # (20-install-kernel copies the tree); the ST FTS touch firmware ships
+    # from the vendor image the same way.
+    #
+    # CS35L41 speaker-protection blobs MUST be re-injected here: 70-cleanup.sh
+    # runs an unconditional `rm -rf /usr/lib/firmware/cirrus` (it drops the
+    # cirrus-audio-firmware RPM), which also wipes the thyme tuning files that
+    # 40-vendor-system-files.sh had already copied in from system_files/.
+    # Without this the cs35l41 amp cannot load its DSP firmware on device.
+    mkdir -p "$MNT/usr/lib/firmware/cirrus"
+    cp -a "$REPO/system_files/usr/lib/firmware/cirrus/." "$MNT/usr/lib/firmware/cirrus/"
+    echo "--- cirrus re-injected: $(ls "$MNT/usr/lib/firmware/cirrus" | wc -l) files"
+    echo "--- thyme firmware:"; ls "$MNT/usr/lib/firmware/qcom/sm8250/umi" 2>/dev/null | head -8 || true
+    ls "$MNT/usr/lib/firmware/ath11k/QCA6390/hw2.0" 2>/dev/null | head -5 || true
 fi
 echo "firmware files: $(find "$MNT/usr/lib/firmware" -type f | wc -l)"
 
@@ -172,18 +178,16 @@ cp -a "$REPO/system_files/usr/share/alsa/ucm2/." "$MNT/usr/share/alsa/ucm2/"
 {
   case "$DEVICE" in
     sm8550-xiaomi-sheng)
-      echo "--- sheng UCM2:"; ls "$MNT/usr/share/alsa/ucm2/Xiaomi/sheng/" 2>&1 | head
-      echo "--- sm8550 firmware dirs:"; ls "$MNT/usr/lib/firmware/qcom/sm8550/" 2>&1 | head
-      echo "--- sheng-specific firmware:"; ls "$MNT/usr/lib/firmware/qcom/sm8550/sheng" 2>&1 | head
-      echo "--- adsp blobs:"; find "$MNT/usr/lib/firmware" -name 'adsp.b00' | head
-      echo "--- audio codec/amp modules:"; find "$MNT/usr/lib/modules/$KVER" -iname '*wsa88*' -o -iname '*wcd93*' | head -8
+      echo "--- sheng UCM2:"; ls "$MNT/usr/share/alsa/ucm2/Xiaomi/sheng/" 2>/dev/null | head || true
+      echo "--- sm8550 firmware dirs:"; ls "$MNT/usr/lib/firmware/qcom/sm8550/" 2>/dev/null | head || true
+      echo "--- sheng-specific firmware:"; ls "$MNT/usr/lib/firmware/qcom/sm8550/sheng" 2>/dev/null | head || true
+      echo "--- adsp blobs:"; find "$MNT/usr/lib/firmware" -name 'adsp.b00' 2>/dev/null | head || true
+      echo "--- audio codec/amp modules:"; find "$MNT/usr/lib/modules/$KVER" \( -iname '*wsa88*' -o -iname '*wcd93*' \) 2>/dev/null | head -8 || true
       ;;
     sm8250-xiaomi-thyme)
-      #echo "--- thyme UCM2:"; ls "$MNT/usr/share/alsa/ucm2/conf.d/sm8250/" 2>&1 | head
-      echo "--- cirrus firmware"; ls "$MNT/usr/lib/firmware/cirrus/" 2>/dev/null | head -8 || true
-      echo "--- umi DSP firmware:"; ls "$MNT/usr/lib/firmware/qcom/sm8250/umi/" 2>&1 | head
-      echo "--- cirrus firmware:"; ls "$MNT/usr/lib/firmware/cirrus/" 2>&1 | head -8
-      echo "--- audio codec/amp modules:"; find "$MNT/usr/lib/modules/$KVER" -iname '*cs35l41*' -o -iname '*wcd93*' | head -8
+      echo "--- umi DSP firmware:"; ls "$MNT/usr/lib/firmware/qcom/sm8250/umi/" 2>/dev/null | head || true
+      echo "--- cirrus firmware:"; ls "$MNT/usr/lib/firmware/cirrus/" 2>/dev/null | head -8 || true
+      echo "--- audio codec/amp modules:"; find "$MNT/usr/lib/modules/$KVER" \( -iname '*cs35l41*' -o -iname '*wcd93*' \) 2>/dev/null | head -8 || true
       ;;
   esac
 } 2>&1 | tee -a "$OUT/touchchain.log"
